@@ -378,7 +378,7 @@ let state = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
 if (!state.logs) state.logs = {};
 if (!state.sets) state.sets = {};
 if (!state.streak) state.streak = 0;
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); scheduleSync(); }
 
 // === TABS ===
 function showPage(name) {
@@ -570,6 +570,55 @@ function fallbackCopy(msg) {
     prompt('Copy this and paste in #health:', msg);
   });
 }
-</script>
+
+// === AUTO-SYNC TO CLOUDFLARE WORKER ===
+const SYNC_URL = "https://gym-sync.stillcraft-gym.workers.dev/sync";
+let syncTimeout = null;
+
+function scheduleSync() {
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(doSync, 2000); // debounce 2s
+}
+
+async function doSync() {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  const todayLogs = state.logs[dateKey] || {};
+  const setKeys = Object.keys(state.sets).filter(k => k.startsWith(dateKey) && state.sets[k]);
+  
+  const payload = {
+    date: dateKey,
+    logs: todayLogs,
+    setsCompleted: setKeys.length,
+    streak: state.streak || 0,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    const resp = await fetch(SYNC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (resp.ok) {
+      updateSyncStatus("synced");
+    } else {
+      updateSyncStatus("error");
+    }
+  } catch (e) {
+    updateSyncStatus("offline");
+  }
+}
+
+function updateSyncStatus(status) {
+  const el = document.getElementById("sync-indicator");
+  if (!el) return;
+  const map = { synced: "☁️ Synced", error: "⚠️ Sync error", offline: "📴 Offline" };
+  el.textContent = map[status] || "";
+  el.style.color = status === "synced" ? "#4ade80" : "#fbbf24";
+}
+
+// Patch save() to trigger sync
+
+\n</script>
 </body>
 </html>
