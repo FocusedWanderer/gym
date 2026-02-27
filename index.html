@@ -573,12 +573,14 @@ function fallbackCopy(msg) {
 }
 
 // === AUTO-SYNC TO CLOUDFLARE WORKER ===
-const SYNC_URL = "https://gym-sync.stillcraft-gym.workers.dev/sync";
+const SYNC_BASE = "https://gym-sync.stillcraft-gym.workers.dev";
 var syncTimeout = null;
+var syncReady = false; // Don't sync until after initial load
 
 function scheduleSync() {
+  if (!syncReady) return; // Skip syncs during page init
   if (syncTimeout) clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(doSync, 2000); // debounce 2s
+  syncTimeout = setTimeout(doSync, 2000);
 }
 
 async function doSync() {
@@ -586,6 +588,13 @@ async function doSync() {
   const todayLogs = state.logs[dateKey] || {};
   const setKeys = Object.keys(state.sets).filter(k => k.startsWith(dateKey) && state.sets[k]);
   
+  // Don't sync if nothing is logged today
+  const hasLogs = Object.values(todayLogs).some(v => v);
+  if (!hasLogs && setKeys.length === 0) {
+    updateSyncStatus("empty");
+    return;
+  }
+
   const payload = {
     date: dateKey,
     logs: todayLogs,
@@ -595,7 +604,7 @@ async function doSync() {
   };
 
   try {
-    const resp = await fetch(SYNC_URL, {
+    const resp = await fetch(SYNC_BASE + "/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -610,13 +619,51 @@ async function doSync() {
   }
 }
 
+// Load data from server on startup (merge with local)
+async function loadFromServer() {
+  try {
+    const resp = await fetch(SYNC_BASE + "/data");
+    if (!resp.ok) return;
+    const serverData = await resp.json();
+    let merged = false;
+    for (const [date, entry] of Object.entries(serverData)) {
+      const localLog = state.logs[date];
+      const serverLog = entry.logs || {};
+      if (!localLog || Object.keys(localLog).length === 0) {
+        // No local data for this date — use server data
+        state.logs[date] = serverLog;
+        merged = true;
+      } else {
+        // Merge: take the union (if either side has it checked, keep it)
+        for (const [k, v] of Object.entries(serverLog)) {
+          if (v && !localLog[k]) { localLog[k] = true; merged = true; }
+        }
+      }
+    }
+    if (merged) {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      loadQuickLogState();
+      updateStreak();
+      renderWeekSummary();
+      renderHistory();
+    }
+    updateSyncStatus("synced");
+  } catch (e) {
+    updateSyncStatus("offline");
+  }
+  syncReady = true; // Now allow user-triggered syncs
+}
+
 function updateSyncStatus(status) {
   const el = document.getElementById("sync-indicator");
   if (!el) return;
-  const map = { synced: "☁️ Synced", error: "⚠️ Sync error", offline: "📴 Offline" };
+  const map = { synced: "\u2601\uFE0F Synced", error: "\u26A0\uFE0F Sync error", offline: "\uD83D\uDCF4 Offline", empty: "" };
   el.textContent = map[status] || "";
   el.style.color = status === "synced" ? "#4ade80" : "#fbbf24";
 }
+
+// Kick off server load after page init
+loadFromServer();
 
 // Patch save() to trigger sync
 
