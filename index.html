@@ -574,7 +574,7 @@ function fallbackCopy(msg) {
 
 // === AUTO-SYNC TO CLOUDFLARE WORKER ===
 const SYNC_URL = "https://gym-sync.stillcraft-gym.workers.dev/sync";
-let syncTimeout = null;
+var syncTimeout = null;
 
 function scheduleSync() {
   if (syncTimeout) clearTimeout(syncTimeout);
