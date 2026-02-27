@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="mobile-web-app-capable" content="yes">
+<title>💪 Gym Companion</title>
+<style>
+  :root {
+    --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #242424; --accent: #4ade80;
+    --accent2: #22d3ee; --warn: #fbbf24; --danger: #f87171; --text: #e5e5e5;
+    --muted: #888; --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; padding-bottom: 80px; }
+  
+  /* Top nav */
+  .top-bar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid #333; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .top-bar h1 { font-size: 18px; font-weight: 700; }
+  .streak-badge { background: var(--surface2); padding: 4px 10px; border-radius: 20px; font-size: 13px; }
+  .streak-badge .fire { color: #f97316; }
+
+  /* Bottom tabs */
+  .tab-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; background: var(--surface); border-top: 1px solid #333; display: flex; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+  .tab-bar button { flex: 1; background: none; border: none; color: var(--muted); font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; cursor: pointer; }
+  .tab-bar button.active { color: var(--accent); }
+  .tab-bar button .icon { font-size: 22px; }
+
+  /* Sections */
+  .page { display: none; padding: 16px; }
+  .page.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .card p, .card li { font-size: 14px; line-height: 1.5; color: var(--text); }
+  .card ul { padding-left: 18px; }
+  .card .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* Day selector */
+  .day-pills { display: flex; gap: 6px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px; }
+  .day-pill { padding: 8px 14px; border-radius: 20px; background: var(--surface); border: 1px solid #333; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; color: var(--text); }
+  .day-pill.active { background: var(--accent); color: #000; border-color: var(--accent); }
+  .day-pill.rest { opacity: 0.5; }
+
+  /* Exercise row */
+  .exercise { border-bottom: 1px solid #2a2a2a; padding: 12px 0; }
+  .exercise:last-child { border-bottom: none; }
+  .exercise .name { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .exercise .detail { font-size: 13px; color: var(--muted); }
+  .exercise .sets-grid { display: grid; grid-template-columns: repeat(auto-fill, 52px); gap: 6px; margin-top: 8px; }
+  .set-btn { width: 52px; height: 36px; border-radius: 8px; border: 1.5px solid #444; background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .set-btn.done { background: var(--accent); color: #000; border-color: var(--accent); }
+  .set-btn:active { transform: scale(0.92); }
+
+  /* Tags */
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+  .tag.tonal { background: #1e3a5f; color: #60a5fa; }
+  .tag.dumbbell { background: #3b2f1a; color: #fbbf24; }
+  .tag.band { background: #1a3b2f; color: #4ade80; }
+  .tag.bodyweight { background: #2d1f3d; color: #c084fc; }
+  .tag.cardio { background: #3b1a1a; color: #f87171; }
+
+  /* Rehab section */
+  .rehab-protocol { border-left: 3px solid var(--warn); padding-left: 12px; margin: 8px 0; }
+  .rehab-protocol h4 { font-size: 14px; color: var(--warn); margin-bottom: 4px; }
+
+  /* Log */
+  .log-entry { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #2a2a2a; }
+  .log-date { font-size: 14px; font-weight: 600; }
+  .log-summary { font-size: 13px; color: var(--muted); }
+  .log-check { font-size: 20px; color: var(--accent); }
+
+  /* Quick log */
+  .quick-log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .quick-btn { padding: 16px; border-radius: var(--radius); border: 1.5px solid #333; background: var(--surface); text-align: center; cursor: pointer; transition: all 0.15s; }
+  .quick-btn .emoji { font-size: 28px; display: block; margin-bottom: 4px; }
+  .quick-btn .label { font-size: 13px; font-weight: 600; }
+  .quick-btn.logged { border-color: var(--accent); background: #0a2a0a; }
+  .quick-btn:active { transform: scale(0.95); }
+
+  /* Timer */
+  .timer { text-align: center; padding: 20px; }
+  .timer .time { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .timer .controls { display: flex; gap: 12px; justify-content: center; margin-top: 12px; }
+  .timer .controls button { padding: 10px 24px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .timer .start-btn { background: var(--accent); color: #000; }
+  .timer .reset-btn { background: var(--surface2); color: var(--text); }
+
+  /* Info boxes */
+  .info-box { background: #1a2332; border: 1px solid #2a3a4a; border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  .info-box.warn { background: #2a2210; border-color: #4a3a10; }
+  .info-box h4 { font-size: 14px; margin-bottom: 6px; }
+  .info-box p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 20px 0 10px; font-weight: 600; }
+  .progress-bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .progress-bar .fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>💪 Gym Companion</h1>
+  <div class="streak-badge"><span class="fire">🔥</span> <span id="streak-count">0</span> day streak</div>
+</div>
+
+<!-- TODAY TAB -->
+<div class="page active" id="page-today">
+  <div class="day-pills" id="day-pills"></div>
+  <div id="workout-content"></div>
+</div>
+
+<!-- REHAB TAB -->
+<div class="page" id="page-rehab">
+  <div class="card">
+    <h3>🦵 Knee Rehab — Patellar Tendinopathy</h3>
+    <p class="note">Do these daily, ideally before your workout as part of warmup. These are evidence-based protocols for patellar tendon pain.</p>
+  </div>
+
+  <div class="card">
+    <h3>Phase 1: Isometric Loading (Weeks 1-2)</h3>
+    <p class="note">Pain relief + tendon loading without aggravation. Hold each for 45 seconds.</p>
+    <div class="exercise">
+      <div class="name">Wall Sit (Isometric Hold)</div>
+      <div class="detail"><span class="tag bodyweight">Bodyweight</span> 5 × 45 sec hold — back against wall, knees at ~60° (not deep)</div>
+      <div class="note">⚡ Key: Keep knees above ankles, NOT past toes. Should feel work, not sharp pain. If painful, reduce knee bend angle.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+        <button class="set-btn" onclick="toggleSet(this)">4</button>
+        <button class="set-btn" onclick="toggleSet(this)">5</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Spanish Squat (Banded Isometric)</div>
+      <div class="detail"><span class="tag band">Band</span> 4 × 45 sec hold — loop band behind knees, anchored to rack/post, lean back</div>
+      <div class="note">⚡ This shifts load to the patellar tendon specifically. Gold standard rehab exercise. Use a sturdy band.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+        <button class="set-btn" onclick="toggleSet(this)">4</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Terminal Knee Extensions (Banded)</div>
+      <div class="detail"><span class="tag band">Band</span> 3 × 15 reps each leg — band behind knee, straighten from ~30° to full extension</div>
+      <div class="note">⚡ Builds VMO strength (inner quad) which supports patellar tracking.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Phase 2: Slow Eccentric Loading (Weeks 3-6)</h3>
+    <p class="note">Progress here once isometrics are pain-free. Slow eccentrics rebuild tendon structure.</p>
+    <div class="exercise">
+      <div class="name">Slow Eccentric Step-Downs</div>
+      <div class="detail"><span class="tag bodyweight">Bodyweight</span> 3 × 10 each leg — stand on step, slowly lower opposite foot (4 sec down)</div>
+      <div class="note">⚡ Use a 4-6" step. The SLOW lowering is what matters. Step back up normally.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Eccentric Single-Leg Decline Squat</div>
+      <div class="detail"><span class="tag bodyweight">Bodyweight</span> 3 × 10 each leg — heels elevated on plate/book, slow 4-sec descent</div>
+      <div class="note">⚡ The decline angle specifically loads the patellar tendon. THE gold standard for patellar tendinopathy rehab.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>💪 Elbow Rehab — Lateral Epicondylitis (Tennis Elbow)</h3>
+    <p class="note">Left elbow. Caused by high shooting volume (~20k rounds/2 months). Do daily.</p>
+  </div>
+
+  <div class="card">
+    <h3>Daily Protocol</h3>
+    <div class="exercise">
+      <div class="name">Tyler Twist (FlexBar or Towel)</div>
+      <div class="detail"><span class="tag band">Band/Towel</span> 3 × 15 reps — wring a rolled towel like wringing water out, slow eccentric on left wrist</div>
+      <div class="note">⚡ #1 evidence-based exercise for lateral epicondylitis. If you can get a TheraBand FlexBar (green), even better. The eccentric wrist extension is the key movement.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Eccentric Wrist Extensions</div>
+      <div class="detail"><span class="tag dumbbell">Light DB (3-5 lb)</span> 3 × 15 — forearm on knee, palm down, slowly lower weight over 4 sec</div>
+      <div class="note">⚡ Use your lightest dumbbell. Lift with the other hand to the top, then slowly lower with the affected arm only.</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Wrist Flexor Stretch</div>
+      <div class="detail"><span class="tag bodyweight">Bodyweight</span> 3 × 30 sec — arm straight, palm up, gently pull fingers back with other hand</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+    <div class="exercise">
+      <div class="name">Wrist Extensor Stretch</div>
+      <div class="detail"><span class="tag bodyweight">Bodyweight</span> 3 × 30 sec — arm straight, palm down, gently press hand down with other hand</div>
+      <div class="sets-grid">
+        <button class="set-btn" onclick="toggleSet(this)">1</button>
+        <button class="set-btn" onclick="toggleSet(this)">2</button>
+        <button class="set-btn" onclick="toggleSet(this)">3</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box warn">
+    <h4>⚠️ Shooting & Elbow Pain</h4>
+    <p>Your volume jumped from ~1-2k to ~10k rounds/month. The recoil absorption + sustained grip is textbook overuse of wrist extensors. Consider: (1) reducing volume to ~5k/month while rehabbing, (2) using a compression strap just below the elbow during shooting, (3) icing after sessions for 15 min. If no improvement in 4-6 weeks of consistent rehab, a PT eval is strongly recommended.</p>
+  </div>
+
+  <div class="info-box">
+    <h4>📋 When to See a Professional</h4>
+    <p>If either condition doesn't improve after 4-6 weeks of consistent rehab work, or if you get sharp/sudden pain, swelling, or locking — get a sports medicine eval. A good sports med doc or orthopedic PT can do imaging and hands-on assessment that I can't.</p>
+  </div>
+</div>
+
+<!-- LOG TAB -->
+<div class="page" id="page-log">
+  <div style="margin-bottom:12px;">
+    <button id="share-btn" onclick="shareSummary()" style="width:100%;padding:16px;border-radius:12px;border:2px solid #4ade80;background:#0a2a0a;color:#4ade80;font-size:16px;font-weight:700;cursor:pointer;">📤 Share Summary to Slack</button>
+  </div>
+  <div class="section-title">Quick Log</div>
+  <div class="quick-log-grid">
+    <div class="quick-btn" onclick="quickLog(this, 'workout')" id="ql-workout"><span class="emoji">🏋️</span><span class="label">Worked Out</span></div>
+    <div class="quick-btn" onclick="quickLog(this, 'creatine')" id="ql-creatine"><span class="emoji">💊</span><span class="label">Creatine</span></div>
+    <div class="quick-btn" onclick="quickLog(this, 'rehab')" id="ql-rehab"><span class="emoji">🩹</span><span class="label">Did Rehab</span></div>
+    <div class="quick-btn" onclick="quickLog(this, 'sleep')" id="ql-sleep"><span class="emoji">😴</span><span class="label">Slept Well</span></div>
+    <div class="quick-btn" onclick="quickLog(this, 'water')" id="ql-water"><span class="emoji">💧</span><span class="label">Good Hydration</span></div>
+    <div class="quick-btn" onclick="quickLog(this, 'protein')" id="ql-protein"><span class="emoji">🥩</span><span class="label">Hit Protein</span></div>
+  </div>
+
+  <div class="card">
+    <h3>📊 This Week</h3>
+    <div id="week-summary">
+      <p style="color:var(--muted); font-size:14px;">Start logging to see your weekly summary here.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📅 History</h3>
+    <div id="log-history">
+      <p style="color:var(--muted); font-size:14px;">No entries yet. Tap the buttons above to start tracking!</p>
+    </div>
+  </div>
+</div>
+
+<!-- TIMER TAB -->
+<div class="page" id="page-timer">
+  <div class="card">
+    <div class="timer">
+      <div class="time" id="timer-display">1:30</div>
+      <p style="color:var(--muted); margin: 8px 0;">Rest Timer</p>
+      <div class="controls">
+        <button class="reset-btn" onclick="setTimer(60)">1:00</button>
+        <button class="start-btn" onclick="toggleTimer()" id="timer-toggle">Start</button>
+        <button class="reset-btn" onclick="setTimer(120)">2:00</button>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:center; margin-top:10px;">
+        <button class="reset-btn" onclick="setTimer(30)" style="padding:8px 16px; font-size:13px;">0:30</button>
+        <button class="reset-btn" onclick="setTimer(90)" style="padding:8px 16px; font-size:13px;">1:30</button>
+        <button class="reset-btn" onclick="setTimer(180)" style="padding:8px 16px; font-size:13px;">3:00</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <h4>⏱️ Rest Guidelines</h4>
+    <p><b>Rehab exercises:</b> 30-60 sec between sets<br>
+    <b>Tonal / strength:</b> 90-120 sec between sets<br>
+    <b>Heavy dumbbells:</b> 2-3 min between sets<br>
+    <b>Supersets:</b> Minimal rest between exercises, 90 sec between rounds</p>
+  </div>
+</div>
+
+<!-- TAB BAR -->
+<div class="tab-bar">
+  <button class="active" onclick="showPage('today')"><span class="icon">🏋️</span>Workout</button>
+  <button onclick="showPage('rehab')"><span class="icon">🩹</span>Rehab</button>
+  <button onclick="showPage('log')"><span class="icon">📊</span>Log</button>
+  <button onclick="showPage('timer')"><span class="icon">⏱️</span>Timer</button>
+</div>
+
+<script>
+// === WORKOUT PROGRAM ===
+const program = {
+  Mon: { name: "Upper Body Push + Core", focus: "Chest, shoulders, triceps — elbow-friendly", exercises: [
+    { name: "Tonal: Chest Press", detail: "3 × 12 — controlled tempo, full ROM", tags: ["tonal"], note: "Tonal's digital weight is easier on joints than free weights for pressing." },
+    { name: "Dumbbell Incline Press", detail: "3 × 10 — moderate weight, 30° bench angle", tags: ["dumbbell"], note: "Keep elbows at ~45° from body to reduce shoulder stress." },
+    { name: "Tonal: Shoulder Press", detail: "3 × 12 — seated or standing", tags: ["tonal"] },
+    { name: "Lateral Raises", detail: "3 × 15 — light weight (10-15 lb), slow and controlled", tags: ["dumbbell"] },
+    { name: "Tonal: Tricep Pushdowns", detail: "3 × 15 — use rope attachment, light weight", tags: ["tonal"], note: "⚠️ Elbow note: If this aggravates the left elbow, skip or use band pushdowns instead." },
+    { name: "Bosu Ball Plank", detail: "3 × 30-45 sec — flat side up, forearms on Bosu", tags: ["bodyweight"] },
+    { name: "Dead Bugs", detail: "3 × 10 each side — slow, press lower back into floor", tags: ["bodyweight"] },
+  ]},
+  Tue: { name: "Lower Body + Knee Rehab", focus: "Quads, glutes, hamstrings — knee-friendly", exercises: [
+    { name: "Knee Rehab Warmup", detail: "Wall sits + banded TKEs (see Rehab tab)", tags: ["band"], note: "Do your knee rehab protocol first as warmup." },
+    { name: "Tonal: Leg Press", detail: "3 × 12 — moderate weight, don't go past 90° knee bend", tags: ["tonal"], note: "Tonal leg press keeps constant tension without joint impact." },
+    { name: "Dumbbell Romanian Deadlifts", detail: "3 × 10 — moderate weight, slight knee bend, hinge at hips", tags: ["dumbbell"], note: "Works hamstrings and glutes without loading the knees." },
+    { name: "Goblet Squat (Partial ROM)", detail: "3 × 12 — squat to ~60° knee bend only, hold dumbbell at chest", tags: ["dumbbell"], note: "⚠️ Only go as deep as is pain-free. Partial ROM is fine." },
+    { name: "Banded Lateral Walks", detail: "3 × 15 each direction — band above knees", tags: ["band"] },
+    { name: "Calf Raises (on step)", detail: "3 × 20 — bodyweight, slow eccentric", tags: ["bodyweight"] },
+    { name: "Treadmill Walk", detail: "10-15 min, 3.0 mph, 5-10% incline", tags: ["cardio"], note: "Incline walking builds leg endurance without pounding the knees." },
+  ]},
+  Wed: { name: "Active Recovery / Cardio", focus: "Light movement, mobility, stress relief", exercises: [
+    { name: "Treadmill Walk or Light Jog", detail: "20-30 min, conversational pace", tags: ["cardio"] },
+    { name: "Wavebag Work", detail: "3 × 3 min rounds, 1 min rest — focus on movement, not power", tags: ["cardio"], note: "Great stress relief. Keep it light — combinations, footwork. Easy on the elbows if you use open-hand strikes." },
+    { name: "Splits Machine", detail: "5-10 min — gentle progressive stretch, don't force it", tags: ["bodyweight"] },
+    { name: "Band Pull-Aparts", detail: "3 × 20 — light band, great for posture and shoulder health", tags: ["band"] },
+    { name: "Foam Roll / Stretch", detail: "10 min — quads, IT bands, calves, forearms", tags: ["bodyweight"], note: "Roll the forearm extensors (top of forearm) for the elbow." },
+  ]},
+  Thu: { name: "Upper Body Pull + Core", focus: "Back, biceps, rear delts — grip-friendly", exercises: [
+    { name: "Tonal: Lat Pulldown", detail: "3 × 12 — controlled, full stretch at top", tags: ["tonal"] },
+    { name: "Tonal: Seated Row", detail: "3 × 12 — squeeze shoulder blades, don't death-grip", tags: ["tonal"], note: "Use a moderate grip — don't white-knuckle it (protects the elbow)." },
+    { name: "Dumbbell Single-Arm Row", detail: "3 × 10 each arm — bench supported, moderate weight", tags: ["dumbbell"] },
+    { name: "Face Pulls (Band)", detail: "3 × 15 — high anchor, pull to face, external rotate", tags: ["band"], note: "Essential for shoulder health. Counters all the forward posture from desk/phone." },
+    { name: "Dumbbell Hammer Curls", detail: "3 × 12 — neutral grip, moderate weight", tags: ["dumbbell"], note: "⚠️ Hammer grip is easier on the elbow than supinated curls. If left arm hurts, do right only." },
+    { name: "Pallof Press (Band)", detail: "3 × 10 each side — anti-rotation core work", tags: ["band"] },
+    { name: "Bird Dogs", detail: "3 × 10 each side — slow and controlled", tags: ["bodyweight"] },
+  ]},
+  Fri: { name: "Lower Body + Conditioning", focus: "Glutes, hamstrings, conditioning", exercises: [
+    { name: "Knee Rehab Warmup", detail: "Wall sits + banded TKEs (see Rehab tab)", tags: ["band"] },
+    { name: "Dumbbell Sumo Deadlift", detail: "3 × 10 — wide stance, toes out, single heavy dumbbell", tags: ["dumbbell"] },
+    { name: "Tonal: Hip Thrust / Glute Bridge", detail: "3 × 12 — if available, otherwise DB hip thrust on bench", tags: ["tonal"] },
+    { name: "Step-Ups", detail: "3 × 10 each leg — moderate weight, use bench", tags: ["dumbbell"], note: "⚠️ Knee note: Only do these if pain-free. Use a lower step height if needed." },
+    { name: "Dumbbell Walking Lunges", detail: "3 × 8 each leg — light weight, long stride", tags: ["dumbbell"], note: "⚠️ Skip if knees are cranky today. Sub banded lateral walks." },
+    { name: "Treadmill HIIT", detail: "15 min — 1 min fast (4.0+ mph) / 1 min walk, repeat", tags: ["cardio"], note: "If knees protest, do incline walking instead. No shame in that." },
+  ]},
+  Sat: { name: "Flex Day", focus: "Whatever sounds good — shoot, wavebag, Tonal program, or rest", exercises: [
+    { name: "Option A: Tonal Program", detail: "Pick any 20-30 min Tonal program that looks fun", tags: ["tonal"] },
+    { name: "Option B: Wavebag Session", detail: "20-30 min — rounds, footwork, combos", tags: ["cardio"] },
+    { name: "Option C: Active Recovery", detail: "Walk, stretch, splits machine, foam roll", tags: ["bodyweight"] },
+    { name: "Option D: Competition Prep", detail: "Dry fire + movement drills for shooting", tags: ["bodyweight"], note: "If you shoot on weekends, this IS your workout. Movement + draws + transitions are physical." },
+    { name: "Elbow & Knee Rehab", detail: "Do your protocols even on flex days", tags: ["band"] },
+  ]},
+  Sun: { name: "Rest Day", focus: "Recovery — your body builds muscle on rest days, not training days", exercises: [
+    { name: "Light Walk", detail: "20-30 min with the dogs or family — optional", tags: ["cardio"] },
+    { name: "Stretching / Mobility", detail: "10-15 min — focus on whatever feels tight", tags: ["bodyweight"] },
+    { name: "Knee & Elbow Rehab", detail: "Yes, even on rest days. These are low-intensity and aid recovery.", tags: ["band"] },
+    { name: "Meal Prep?", detail: "Good day to prep protein-forward lunches for the week", tags: [], note: "Even just grilling a few chicken breasts for the week makes a difference." },
+  ]},
+};
+
+const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const dayFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// === STATE ===
+const LS_KEY = 'matts-gym';
+let state = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+if (!state.logs) state.logs = {};
+if (!state.sets) state.sets = {};
+if (!state.streak) state.streak = 0;
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+// === TABS ===
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.tab-bar button').forEach((b, i) => {
+    b.classList.toggle('active', ['today','rehab','log','timer'][i] === name);
+  });
+}
+
+// === DAY PILLS ===
+function buildDayPills() {
+  const today = new Date().getDay();
+  const pills = document.getElementById('day-pills');
+  pills.innerHTML = '';
+  dayNames.forEach((d, i) => {
+    const pill = document.createElement('div');
+    pill.className = 'day-pill' + (i === today ? ' active' : '') + (d === 'Sun' ? ' rest' : '');
+    pill.textContent = d;
+    pill.onclick = () => showDay(d);
+    pills.appendChild(pill);
+  });
+}
+
+function showDay(day) {
+  document.querySelectorAll('.day-pill').forEach(p => p.classList.toggle('active', p.textContent === day));
+  renderWorkout(day);
+}
+
+function renderWorkout(day) {
+  const w = program[day];
+  const container = document.getElementById('workout-content');
+  const dateKey = new Date().toISOString().slice(0, 10);
+  
+  let html = `<div class="card"><h3>${w.name}</h3><p style="color:var(--muted); font-size:13px;">${w.focus}</p></div>`;
+  
+  w.exercises.forEach((ex, ei) => {
+    const setMatch = ex.detail.match(/(\d+)\s*[×x]/);
+    const numSets = setMatch ? parseInt(setMatch[1]) : 0;
+    const tags = (ex.tags || []).map(t => `<span class="tag ${t}">${t}</span>`).join('');
+    
+    html += `<div class="card"><div class="exercise">
+      <div class="name">${tags} ${ex.name}</div>
+      <div class="detail">${ex.detail}</div>
+      ${ex.note ? `<div class="note">${ex.note}</div>` : ''}
+      ${numSets > 0 ? `<div class="sets-grid">${Array.from({length: numSets}, (_, si) => {
+        const key = `${dateKey}-${day}-${ei}-${si}`;
+        const done = state.sets[key] ? 'done' : '';
+        return `<button class="set-btn ${done}" onclick="toggleSet(this)" data-key="${key}">${si+1}</button>`;
+      }).join('')}</div>` : ''}
+    </div></div>`;
+  });
+  
+  container.innerHTML = html;
+}
+
+function toggleSet(btn) {
+  const key = btn.dataset?.key;
+  if (key) {
+    state.sets[key] = !state.sets[key];
+    save();
+  }
+  btn.classList.toggle('done');
+}
+
+// === QUICK LOG ===
+function quickLog(el, type) {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  if (!state.logs[dateKey]) state.logs[dateKey] = {};
+  state.logs[dateKey][type] = !state.logs[dateKey][type];
+  el.classList.toggle('logged', state.logs[dateKey][type]);
+  updateStreak();
+  save();
+  renderWeekSummary();
+  renderHistory();
+}
+
+function loadQuickLogState() {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  const today = state.logs[dateKey] || {};
+  ['workout','creatine','rehab','sleep','water','protein'].forEach(t => {
+    const el = document.getElementById('ql-' + t);
+    if (el && today[t]) el.classList.add('logged');
+  });
+}
+
+function updateStreak() {
+  let streak = 0;
+  let d = new Date();
+  while (true) {
+    const key = d.toISOString().slice(0, 10);
+    const log = state.logs[key];
+    if (log && (log.workout || log.rehab)) { streak++; d.setDate(d.getDate() - 1); }
+    else break;
+  }
+  state.streak = streak;
+  document.getElementById('streak-count').textContent = streak;
+  save();
+}
+
+function renderWeekSummary() {
+  const container = document.getElementById('week-summary');
+  const icons = { workout: '🏋️', creatine: '💊', rehab: '🩹', sleep: '😴', water: '💧', protein: '🥩' };
+  let d = new Date(); d.setDate(d.getDate() - d.getDay());
+  let html = '<div style="display:grid; grid-template-columns: auto repeat(7, 1fr); gap:4px; font-size:12px; text-align:center;">';
+  html += '<div></div>';
+  for (let i = 0; i < 7; i++) {
+    const wd = new Date(d); wd.setDate(wd.getDate() + i);
+    html += `<div style="color:var(--muted)">${dayNames[wd.getDay()]}</div>`;
+  }
+  Object.entries(icons).forEach(([type, icon]) => {
+    html += `<div>${icon}</div>`;
+    for (let i = 0; i < 7; i++) {
+      const wd = new Date(d); wd.setDate(wd.getDate() + i);
+      const key = wd.toISOString().slice(0, 10);
+      const done = state.logs[key]?.[type];
+      html += `<div>${done ? '✅' : '·'}</div>`;
+    }
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderHistory() {
+  const container = document.getElementById('log-history');
+  const dates = Object.keys(state.logs).sort().reverse().slice(0, 14);
+  if (dates.length === 0) { container.innerHTML = '<p style="color:var(--muted)">No entries yet.</p>'; return; }
+  const icons = { workout: '🏋️', creatine: '💊', rehab: '🩹', sleep: '😴', water: '💧', protein: '🥩' };
+  container.innerHTML = dates.map(d => {
+    const log = state.logs[d];
+    const tags = Object.entries(log).filter(([,v]) => v).map(([k]) => icons[k] || k).join(' ');
+    return `<div class="log-entry"><div><div class="log-date">${d}</div><div class="log-summary">${tags || 'No items'}</div></div></div>`;
+  }).join('');
+}
+
+// === TIMER ===
+let timerSeconds = 90, timerInterval = null, timerRunning = false;
+function setTimer(s) { timerSeconds = s; timerRunning = false; clearInterval(timerInterval); document.getElementById('timer-toggle').textContent = 'Start'; updateTimerDisplay(); }
+function updateTimerDisplay() { const m = Math.floor(timerSeconds / 60); const s = timerSeconds % 60; document.getElementById('timer-display').textContent = `${m}:${s.toString().padStart(2,'0')}`; }
+function toggleTimer() {
+  if (timerRunning) { clearInterval(timerInterval); timerRunning = false; document.getElementById('timer-toggle').textContent = 'Start'; }
+  else { timerRunning = true; document.getElementById('timer-toggle').textContent = 'Pause';
+    timerInterval = setInterval(() => { timerSeconds--; updateTimerDisplay(); if (timerSeconds <= 0) { clearInterval(timerInterval); timerRunning = false; document.getElementById('timer-toggle').textContent = 'Start'; timerSeconds = 90; try { navigator.vibrate?.(500); } catch(e){} }}, 1000);
+  }
+}
+updateTimerDisplay();
+
+// === INIT ===
+buildDayPills();
+const today = dayNames[new Date().getDay()];
+renderWorkout(today);
+loadQuickLogState();
+updateStreak();
+renderWeekSummary();
+renderHistory();
+
+// === SHARE/SYNC ===
+function generateSummary() {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  const today = state.logs[dateKey] || {};
+  const icons = { workout: '🏋️ Worked Out', creatine: '💊 Creatine', rehab: '🩹 Rehab', sleep: '😴 Slept Well', water: '💧 Hydration', protein: '🥩 Protein' };
+  const items = Object.entries(today).filter(([,v]) => v).map(([k]) => icons[k] || k);
+  const setKeys = Object.keys(state.sets).filter(k => k.startsWith(dateKey) && state.sets[k]);
+  const setCount = setKeys.length;
+  let msg = "Gym Log " + dateKey + "\n";
+  if (items.length > 0) msg += items.join(' | ') + "\n";
+  if (setCount > 0) msg += "Sets completed: " + setCount + "\n";
+  if (state.streak > 0) msg += "Streak: " + state.streak + " days\n";
+  if (items.length === 0 && setCount === 0) msg += "No activity logged yet today.\n";
+  return msg;
+}
+
+function shareSummary() {
+  const msg = generateSummary();
+  if (navigator.share) {
+    navigator.share({ text: msg }).catch(() => fallbackCopy(msg));
+  } else {
+    fallbackCopy(msg);
+  }
+}
+
+function fallbackCopy(msg) {
+  navigator.clipboard.writeText(msg).then(() => {
+    const btn = document.getElementById('share-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copied! Paste in #health';
+    setTimeout(() => { btn.textContent = orig; }, 2500);
+  }).catch(() => {
+    prompt('Copy this and paste in #health:', msg);
+  });
+}
+</script>
+</body>
+</html>
