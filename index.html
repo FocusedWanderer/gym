@@ -246,14 +246,14 @@
 
 <!-- LOG TAB -->
 <div class="page" id="page-log">
-  <div style="margin-bottom:12px;">
-    <button id="share-btn" onclick="shareSummary()" style="width:100%;padding:16px;border-radius:12px;border:2px solid #4ade80;background:#0a2a0a;color:#4ade80;font-size:16px;font-weight:700;cursor:pointer;">📤 Share Summary to Slack</button>
+  <div class="section-title">Today's Activity</div>
+  <div id="today-activity">
+    <p style="color:var(--muted); font-size:14px;">Activity from Workout & Rehab tabs will appear here automatically.</p>
   </div>
-  <div class="section-title">Quick Log</div>
+
+  <div class="section-title">Daily Habits</div>
   <div class="quick-log-grid">
-    <div class="quick-btn" onclick="quickLog(this, 'workout')" id="ql-workout"><span class="emoji">🏋️</span><span class="label">Worked Out</span></div>
     <div class="quick-btn" onclick="quickLog(this, 'creatine')" id="ql-creatine"><span class="emoji">💊</span><span class="label">Creatine</span></div>
-    <div class="quick-btn" onclick="quickLog(this, 'rehab')" id="ql-rehab"><span class="emoji">🩹</span><span class="label">Did Rehab</span></div>
     <div class="quick-btn" onclick="quickLog(this, 'sleep')" id="ql-sleep"><span class="emoji">😴</span><span class="label">Slept Well</span></div>
     <div class="quick-btn" onclick="quickLog(this, 'water')" id="ql-water"><span class="emoji">💧</span><span class="label">Good Hydration</span></div>
     <div class="quick-btn" onclick="quickLog(this, 'protein')" id="ql-protein"><span class="emoji">🥩</span><span class="label">Hit Protein</span></div>
@@ -269,7 +269,7 @@
   <div class="card">
     <h3>📅 History</h3>
     <div id="log-history">
-      <p style="color:var(--muted); font-size:14px;">No entries yet. Tap the buttons above to start tracking!</p>
+      <p style="color:var(--muted); font-size:14px;">No entries yet.</p>
     </div>
   </div>
 </div>
@@ -370,16 +370,56 @@ const program = {
   ]},
 };
 
+// Rehab exercises (mirrors the HTML rehab tab for tracking)
+const rehabExercises = {
+  knee: [
+    { name: "Wall Sit", sets: 5 },
+    { name: "Spanish Squat", sets: 4 },
+    { name: "Terminal Knee Extensions", sets: 3 },
+    { name: "Eccentric Step-Downs", sets: 3 },
+    { name: "Eccentric Decline Squat", sets: 3 },
+  ],
+  elbow: [
+    { name: "Tyler Twist", sets: 3 },
+    { name: "Eccentric Wrist Extensions", sets: 3 },
+    { name: "Wrist Flexor Stretch", sets: 3 },
+    { name: "Wrist Extensor Stretch", sets: 3 },
+  ]
+};
+
 const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const dayFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// === HELPERS ===
+function getDateKey() { return new Date().toISOString().slice(0, 10); }
 
 // === STATE ===
 const LS_KEY = 'matts-gym';
-let state = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+var state = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
 if (!state.logs) state.logs = {};
 if (!state.sets) state.sets = {};
 if (!state.streak) state.streak = 0;
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); scheduleSync(); }
+
+// Clean up old set data (auto-reset: only keep today's and recent history)
+function cleanOldSets() {
+  const today = getDateKey();
+  const keysToDelete = [];
+  for (const key of Object.keys(state.sets)) {
+    if (!key.startsWith(today)) keysToDelete.push(key);
+  }
+  keysToDelete.forEach(k => delete state.sets[k]);
+}
+cleanOldSets();
+
+var syncReady = false;
+var syncTimeout = null;
+
+function save() {
+  localStorage.setItem(LS_KEY, JSON.stringify(state));
+  if (syncReady) {
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(doSync, 2000);
+  }
+}
 
 // === TABS ===
 function showPage(name) {
@@ -388,16 +428,17 @@ function showPage(name) {
   document.querySelectorAll('.tab-bar button').forEach((b, i) => {
     b.classList.toggle('active', ['today','rehab','log','timer'][i] === name);
   });
+  if (name === 'log') { renderTodayActivity(); renderWeekSummary(); renderHistory(); }
 }
 
 // === DAY PILLS ===
 function buildDayPills() {
-  const today = new Date().getDay();
+  const todayIdx = new Date().getDay();
   const pills = document.getElementById('day-pills');
   pills.innerHTML = '';
   dayNames.forEach((d, i) => {
     const pill = document.createElement('div');
-    pill.className = 'day-pill' + (i === today ? ' active' : '') + (d === 'Sun' ? ' rest' : '');
+    pill.className = 'day-pill' + (i === todayIdx ? ' active' : '') + (d === 'Sun' ? ' rest' : '');
     pill.textContent = d;
     pill.onclick = () => showDay(d);
     pills.appendChild(pill);
@@ -412,57 +453,140 @@ function showDay(day) {
 function renderWorkout(day) {
   const w = program[day];
   const container = document.getElementById('workout-content');
-  const dateKey = new Date().toISOString().slice(0, 10);
-  
+  const dateKey = getDateKey();
+  const isToday = dayNames[new Date().getDay()] === day;
+
   let html = `<div class="card"><h3>${w.name}</h3><p style="color:var(--muted); font-size:13px;">${w.focus}</p></div>`;
-  
+
   w.exercises.forEach((ex, ei) => {
     const setMatch = ex.detail.match(/(\d+)\s*[×x]/);
     const numSets = setMatch ? parseInt(setMatch[1]) : 0;
     const tags = (ex.tags || []).map(t => `<span class="tag ${t}">${t}</span>`).join('');
-    
+
+    // Count completed sets for this exercise
+    let completedSets = 0;
+    if (numSets > 0 && isToday) {
+      for (let si = 0; si < numSets; si++) {
+        if (state.sets[`${dateKey}-workout-${day}-${ei}-${si}`]) completedSets++;
+      }
+    }
+    const progressText = (numSets > 0 && isToday && completedSets > 0) ? ` <span style="color:var(--accent);font-size:12px;">${completedSets}/${numSets}</span>` : '';
+
     html += `<div class="card"><div class="exercise">
-      <div class="name">${tags} ${ex.name}</div>
+      <div class="name">${tags} ${ex.name}${progressText}</div>
       <div class="detail">${ex.detail}</div>
       ${ex.note ? `<div class="note">${ex.note}</div>` : ''}
       ${numSets > 0 ? `<div class="sets-grid">${Array.from({length: numSets}, (_, si) => {
-        const key = `${dateKey}-${day}-${ei}-${si}`;
+        const key = `${dateKey}-workout-${day}-${ei}-${si}`;
         const done = state.sets[key] ? 'done' : '';
-        return `<button class="set-btn ${done}" onclick="toggleSet(this)" data-key="${key}">${si+1}</button>`;
+        return `<button class="set-btn ${done}" onclick="toggleSet(this, 'workout')" data-key="${key}" data-day="${day}" data-ei="${ei}" data-si="${si}">${si+1}</button>`;
       }).join('')}</div>` : ''}
     </div></div>`;
   });
-  
+
   container.innerHTML = html;
 }
 
-function toggleSet(btn) {
+function toggleSet(btn, source) {
   const key = btn.dataset?.key;
   if (key) {
     state.sets[key] = !state.sets[key];
+    btn.classList.toggle('done');
+    // Auto-populate log from exercise completions
+    autoUpdateLog();
     save();
+    // Re-render to update progress counts
+    if (source === 'workout') {
+      const day = btn.dataset.day;
+      if (day) renderWorkout(day);
+    }
   }
-  btn.classList.toggle('done');
 }
 
-// === QUICK LOG ===
+// === AUTO-UPDATE LOG FROM EXERCISE DATA ===
+function autoUpdateLog() {
+  const dateKey = getDateKey();
+  if (!state.logs[dateKey]) state.logs[dateKey] = {};
+  const log = state.logs[dateKey];
+
+  // Count workout sets completed today
+  const todayDay = dayNames[new Date().getDay()];
+  const w = program[todayDay];
+  let totalWorkoutSets = 0, doneWorkoutSets = 0;
+  if (w) {
+    w.exercises.forEach((ex, ei) => {
+      const m = ex.detail.match(/(\d+)\s*[×x]/);
+      const n = m ? parseInt(m[1]) : 0;
+      totalWorkoutSets += n;
+      for (let si = 0; si < n; si++) {
+        if (state.sets[`${dateKey}-workout-${todayDay}-${ei}-${si}`]) doneWorkoutSets++;
+      }
+    });
+  }
+
+  // Count rehab sets completed today
+  let totalRehabSets = 0, doneRehabSets = 0;
+  ['knee', 'elbow'].forEach(area => {
+    rehabExercises[area].forEach((ex, ei) => {
+      totalRehabSets += ex.sets;
+      for (let si = 0; si < ex.sets; si++) {
+        if (state.sets[`${dateKey}-rehab-${area}-${ei}-${si}`]) doneRehabSets++;
+      }
+    });
+  });
+
+  // Store detailed completion data
+  log.workoutSets = doneWorkoutSets;
+  log.workoutTotal = totalWorkoutSets;
+  log.rehabSets = doneRehabSets;
+  log.rehabTotal = totalRehabSets;
+  log.workout = doneWorkoutSets > 0;
+  log.rehab = doneRehabSets > 0;
+
+  // Update streak
+  updateStreak();
+}
+
+// === REHAB TAB SET TRACKING ===
+// Attach data attributes to rehab set buttons on page load
+function initRehabTracking() {
+  const dateKey = getDateKey();
+  document.querySelectorAll('#page-rehab .sets-grid').forEach((grid, gridIdx) => {
+    // Determine which area and exercise index
+    let area, ei;
+    // Count grids: first 3 are knee (Phase 1: 0,1,2), next 2 are knee (Phase 2: 3,4), then 4 elbow (5,6,7,8)
+    if (gridIdx < 3) { area = 'knee'; ei = gridIdx; }
+    else if (gridIdx < 5) { area = 'knee'; ei = gridIdx; }
+    else { area = 'elbow'; ei = gridIdx - 5; }
+
+    grid.querySelectorAll('.set-btn').forEach((btn, si) => {
+      const key = `${dateKey}-rehab-${area}-${ei}-${si}`;
+      btn.dataset.key = key;
+      btn.dataset.area = area;
+      btn.dataset.ei = ei;
+      btn.dataset.si = si;
+      btn.onclick = function() { toggleSet(this, 'rehab'); };
+      if (state.sets[key]) btn.classList.add('done');
+    });
+  });
+}
+
+// === QUICK LOG (habits only) ===
 function quickLog(el, type) {
-  const dateKey = new Date().toISOString().slice(0, 10);
+  const dateKey = getDateKey();
   if (!state.logs[dateKey]) state.logs[dateKey] = {};
   state.logs[dateKey][type] = !state.logs[dateKey][type];
   el.classList.toggle('logged', state.logs[dateKey][type]);
   updateStreak();
   save();
-  renderWeekSummary();
-  renderHistory();
 }
 
 function loadQuickLogState() {
-  const dateKey = new Date().toISOString().slice(0, 10);
+  const dateKey = getDateKey();
   const today = state.logs[dateKey] || {};
-  ['workout','creatine','rehab','sleep','water','protein'].forEach(t => {
+  ['creatine','sleep','water','protein'].forEach(t => {
     const el = document.getElementById('ql-' + t);
-    if (el && today[t]) el.classList.add('logged');
+    if (el) el.classList.toggle('logged', !!today[t]);
   });
 }
 
@@ -477,46 +601,156 @@ function updateStreak() {
   }
   state.streak = streak;
   document.getElementById('streak-count').textContent = streak;
-  save();
 }
 
+// === LOG TAB: Today's Activity (auto-populated) ===
+function renderTodayActivity() {
+  const dateKey = getDateKey();
+  const log = state.logs[dateKey] || {};
+  const container = document.getElementById('today-activity');
+
+  let html = '';
+
+  // Workout progress
+  if (log.workoutTotal > 0) {
+    const pct = Math.round((log.workoutSets || 0) / log.workoutTotal * 100);
+    const todayDay = dayNames[new Date().getDay()];
+    const w = program[todayDay];
+    html += `<div class="card">
+      <h3>🏋️ Workout: ${w ? w.name : todayDay}</h3>
+      <p style="font-size:14px;">${log.workoutSets || 0}/${log.workoutTotal} sets completed</p>
+      <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>`;
+    // Show per-exercise breakdown
+    if (w) {
+      html += '<div style="margin-top:10px;">';
+      w.exercises.forEach((ex, ei) => {
+        const m = ex.detail.match(/(\d+)\s*[×x]/);
+        const n = m ? parseInt(m[1]) : 0;
+        if (n === 0) return;
+        let done = 0;
+        for (let si = 0; si < n; si++) {
+          if (state.sets[`${dateKey}-workout-${todayDay}-${ei}-${si}`]) done++;
+        }
+        if (done > 0) {
+          const icon = done >= n ? '✅' : '🔸';
+          html += `<div style="font-size:13px;color:var(--muted);padding:2px 0;">${icon} ${ex.name} — ${done}/${n}</div>`;
+        }
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Rehab progress
+  if (log.rehabTotal > 0) {
+    const pct = Math.round((log.rehabSets || 0) / log.rehabTotal * 100);
+    html += `<div class="card">
+      <h3>🩹 Rehab</h3>
+      <p style="font-size:14px;">${log.rehabSets || 0}/${log.rehabTotal} sets completed</p>
+      <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>`;
+    html += '<div style="margin-top:10px;">';
+    ['knee', 'elbow'].forEach(area => {
+      rehabExercises[area].forEach((ex, ei) => {
+        let done = 0;
+        for (let si = 0; si < ex.sets; si++) {
+          if (state.sets[`${dateKey}-rehab-${area}-${ei}-${si}`]) done++;
+        }
+        if (done > 0) {
+          const icon = done >= ex.sets ? '✅' : '🔸';
+          const label = area === 'knee' ? '🦵' : '💪';
+          html += `<div style="font-size:13px;color:var(--muted);padding:2px 0;">${icon} ${label} ${ex.name} — ${done}/${ex.sets}</div>`;
+        }
+      });
+    });
+    html += '</div></div>';
+  }
+
+  // Habits
+  const habits = { creatine: '💊 Creatine', sleep: '😴 Slept Well', water: '💧 Hydration', protein: '🥩 Protein' };
+  const checkedHabits = Object.entries(habits).filter(([k]) => log[k]);
+  if (checkedHabits.length > 0) {
+    html += '<div class="card"><h3>✅ Habits</h3><div>';
+    checkedHabits.forEach(([k, label]) => {
+      html += `<span style="display:inline-block;padding:4px 10px;margin:3px;border-radius:8px;background:#0a2a0a;border:1px solid var(--accent);font-size:13px;">${label}</span>`;
+    });
+    html += '</div></div>';
+  }
+
+  if (!html) {
+    html = '<div class="card"><p style="color:var(--muted);font-size:14px;">No activity yet today. Head to Workout or Rehab to get started!</p></div>';
+  }
+  container.innerHTML = html;
+}
+
+// === WEEK SUMMARY ===
 function renderWeekSummary() {
   const container = document.getElementById('week-summary');
-  const icons = { workout: '🏋️', creatine: '💊', rehab: '🩹', sleep: '😴', water: '💧', protein: '🥩' };
   let d = new Date(); d.setDate(d.getDate() - d.getDay());
+  const rows = [
+    { key: 'workout', icon: '🏋️', label: 'Workout' },
+    { key: 'rehab', icon: '🩹', label: 'Rehab' },
+    { key: 'creatine', icon: '💊', label: 'Creatine' },
+    { key: 'sleep', icon: '😴', label: 'Sleep' },
+    { key: 'water', icon: '💧', label: 'Water' },
+    { key: 'protein', icon: '🥩', label: 'Protein' },
+  ];
   let html = '<div style="display:grid; grid-template-columns: auto repeat(7, 1fr); gap:4px; font-size:12px; text-align:center;">';
   html += '<div></div>';
   for (let i = 0; i < 7; i++) {
     const wd = new Date(d); wd.setDate(wd.getDate() + i);
     html += `<div style="color:var(--muted)">${dayNames[wd.getDay()]}</div>`;
   }
-  Object.entries(icons).forEach(([type, icon]) => {
-    html += `<div>${icon}</div>`;
+  rows.forEach(row => {
+    html += `<div>${row.icon}</div>`;
     for (let i = 0; i < 7; i++) {
       const wd = new Date(d); wd.setDate(wd.getDate() + i);
       const key = wd.toISOString().slice(0, 10);
-      const done = state.logs[key]?.[type];
-      html += `<div>${done ? '✅' : '·'}</div>`;
+      const log = state.logs[key] || {};
+      if (row.key === 'workout' && log.workoutSets > 0) {
+        const pct = Math.round((log.workoutSets / log.workoutTotal) * 100);
+        html += `<div style="color:${pct >= 80 ? 'var(--accent)' : 'var(--warn)'}">${pct}%</div>`;
+      } else if (row.key === 'rehab' && log.rehabSets > 0) {
+        const pct = Math.round((log.rehabSets / log.rehabTotal) * 100);
+        html += `<div style="color:${pct >= 80 ? 'var(--accent)' : 'var(--warn)'}">${pct}%</div>`;
+      } else {
+        html += `<div>${log[row.key] ? '✅' : '·'}</div>`;
+      }
     }
   });
   html += '</div>';
   container.innerHTML = html;
 }
 
+// === HISTORY ===
 function renderHistory() {
   const container = document.getElementById('log-history');
   const dates = Object.keys(state.logs).sort().reverse().slice(0, 14);
   if (dates.length === 0) { container.innerHTML = '<p style="color:var(--muted)">No entries yet.</p>'; return; }
-  const icons = { workout: '🏋️', creatine: '💊', rehab: '🩹', sleep: '😴', water: '💧', protein: '🥩' };
+
   container.innerHTML = dates.map(d => {
     const log = state.logs[d];
-    const tags = Object.entries(log).filter(([,v]) => v).map(([k]) => icons[k] || k).join(' ');
-    return `<div class="log-entry"><div><div class="log-date">${d}</div><div class="log-summary">${tags || 'No items'}</div></div></div>`;
+    let parts = [];
+    if (log.workoutSets > 0) {
+      const pct = log.workoutTotal ? Math.round(log.workoutSets / log.workoutTotal * 100) : 0;
+      parts.push(`🏋️ ${pct}% (${log.workoutSets}/${log.workoutTotal} sets)`);
+    }
+    if (log.rehabSets > 0) {
+      const pct = log.rehabTotal ? Math.round(log.rehabSets / log.rehabTotal * 100) : 0;
+      parts.push(`🩹 ${pct}% (${log.rehabSets}/${log.rehabTotal} sets)`);
+    }
+    const habits = [];
+    if (log.creatine) habits.push('💊');
+    if (log.sleep) habits.push('😴');
+    if (log.water) habits.push('💧');
+    if (log.protein) habits.push('🥩');
+    if (habits.length > 0) parts.push(habits.join(' '));
+    const summary = parts.join(' | ') || 'No activity';
+    return `<div class="log-entry"><div><div class="log-date">${d}</div><div class="log-summary">${summary}</div></div></div>`;
   }).join('');
 }
 
 // === TIMER ===
-let timerSeconds = 90, timerInterval = null, timerRunning = false;
+var timerSeconds = 90, timerInterval = null, timerRunning = false;
 function setTimer(s) { timerSeconds = s; timerRunning = false; clearInterval(timerInterval); document.getElementById('timer-toggle').textContent = 'Start'; updateTimerDisplay(); }
 function updateTimerDisplay() { const m = Math.floor(timerSeconds / 60); const s = timerSeconds % 60; document.getElementById('timer-display').textContent = `${m}:${s.toString().padStart(2,'0')}`; }
 function toggleTimer() {
@@ -527,78 +761,45 @@ function toggleTimer() {
 }
 updateTimerDisplay();
 
-// === INIT ===
-buildDayPills();
-const today = dayNames[new Date().getDay()];
-renderWorkout(today);
-loadQuickLogState();
-updateStreak();
-renderWeekSummary();
-renderHistory();
-
-// === SHARE/SYNC ===
-function generateSummary() {
-  const dateKey = new Date().toISOString().slice(0, 10);
-  const today = state.logs[dateKey] || {};
-  const icons = { workout: '🏋️ Worked Out', creatine: '💊 Creatine', rehab: '🩹 Rehab', sleep: '😴 Slept Well', water: '💧 Hydration', protein: '🥩 Protein' };
-  const items = Object.entries(today).filter(([,v]) => v).map(([k]) => icons[k] || k);
-  const setKeys = Object.keys(state.sets).filter(k => k.startsWith(dateKey) && state.sets[k]);
-  const setCount = setKeys.length;
-  let msg = "Gym Log " + dateKey + "\n";
-  if (items.length > 0) msg += items.join(' | ') + "\n";
-  if (setCount > 0) msg += "Sets completed: " + setCount + "\n";
-  if (state.streak > 0) msg += "Streak: " + state.streak + " days\n";
-  if (items.length === 0 && setCount === 0) msg += "No activity logged yet today.\n";
-  return msg;
-}
-
-function shareSummary() {
-  const msg = generateSummary();
-  if (navigator.share) {
-    navigator.share({ text: msg }).catch(() => fallbackCopy(msg));
-  } else {
-    fallbackCopy(msg);
-  }
-}
-
-function fallbackCopy(msg) {
-  navigator.clipboard.writeText(msg).then(() => {
-    const btn = document.getElementById('share-btn');
-    const orig = btn.textContent;
-    btn.textContent = '✅ Copied! Paste in #health';
-    setTimeout(() => { btn.textContent = orig; }, 2500);
-  }).catch(() => {
-    prompt('Copy this and paste in #health:', msg);
-  });
-}
-
-// === AUTO-SYNC TO CLOUDFLARE WORKER ===
+// === SYNC ===
 const SYNC_BASE = "https://gym-sync.stillcraft-gym.workers.dev";
-var syncTimeout = null;
-var syncReady = false; // Don't sync until after initial load
-
-function scheduleSync() {
-  if (!syncReady) return; // Skip syncs during page init
-  if (syncTimeout) clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(doSync, 2000);
-}
 
 async function doSync() {
-  const dateKey = new Date().toISOString().slice(0, 10);
-  const todayLogs = state.logs[dateKey] || {};
-  const setKeys = Object.keys(state.sets).filter(k => k.startsWith(dateKey) && state.sets[k]);
-  
-  // Don't sync if nothing is logged today
-  const hasLogs = Object.values(todayLogs).some(v => v);
-  if (!hasLogs && setKeys.length === 0) {
-    updateSyncStatus("empty");
-    return;
+  const dateKey = getDateKey();
+  const log = state.logs[dateKey] || {};
+  const hasActivity = log.workout || log.rehab || log.creatine || log.sleep || log.water || log.protein;
+  if (!hasActivity) return;
+
+  // Build detailed exercise data for the agent
+  const todayDay = dayNames[new Date().getDay()];
+  const w = program[todayDay];
+  const exerciseDetails = [];
+  if (w) {
+    w.exercises.forEach((ex, ei) => {
+      const m = ex.detail.match(/(\d+)\s*[×x]/);
+      const n = m ? parseInt(m[1]) : 0;
+      let done = 0;
+      for (let si = 0; si < n; si++) {
+        if (state.sets[`${dateKey}-workout-${todayDay}-${ei}-${si}`]) done++;
+      }
+      if (done > 0) exerciseDetails.push({ name: ex.name, done, total: n, type: 'workout' });
+    });
   }
+  ['knee', 'elbow'].forEach(area => {
+    rehabExercises[area].forEach((ex, ei) => {
+      let done = 0;
+      for (let si = 0; si < ex.sets; si++) {
+        if (state.sets[`${dateKey}-rehab-${area}-${ei}-${si}`]) done++;
+      }
+      if (done > 0) exerciseDetails.push({ name: ex.name, done, total: ex.sets, type: 'rehab', area });
+    });
+  });
 
   const payload = {
     date: dateKey,
-    logs: todayLogs,
-    setsCompleted: setKeys.length,
+    logs: log,
+    exercises: exerciseDetails,
+    workoutName: w ? w.name : todayDay,
     streak: state.streak || 0,
     timestamp: new Date().toISOString()
   };
@@ -609,65 +810,61 @@ async function doSync() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    if (resp.ok) {
-      updateSyncStatus("synced");
-    } else {
-      updateSyncStatus("error");
-    }
+    updateSyncIndicator(resp.ok ? "synced" : "error");
   } catch (e) {
-    updateSyncStatus("offline");
+    updateSyncIndicator("offline");
   }
 }
 
-// Load data from server on startup (merge with local)
 async function loadFromServer() {
   try {
     const resp = await fetch(SYNC_BASE + "/data");
-    if (!resp.ok) return;
+    if (!resp.ok) { syncReady = true; return; }
     const serverData = await resp.json();
     let merged = false;
     for (const [date, entry] of Object.entries(serverData)) {
-      const localLog = state.logs[date];
-      const serverLog = entry.logs || {};
-      if (!localLog || Object.keys(localLog).length === 0) {
-        // No local data for this date — use server data
-        state.logs[date] = serverLog;
+      const local = state.logs[date];
+      const server = entry.logs || {};
+      if (!local || Object.keys(local).length === 0) {
+        state.logs[date] = server;
         merged = true;
       } else {
-        // Merge: take the union (if either side has it checked, keep it)
-        for (const [k, v] of Object.entries(serverLog)) {
-          if (v && !localLog[k]) { localLog[k] = true; merged = true; }
+        for (const [k, v] of Object.entries(server)) {
+          if (v && !local[k]) { local[k] = v; merged = true; }
         }
+        // Merge numeric fields (take max)
+        ['workoutSets','workoutTotal','rehabSets','rehabTotal'].forEach(f => {
+          if ((server[f] || 0) > (local[f] || 0)) { local[f] = server[f]; merged = true; }
+        });
       }
     }
     if (merged) {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
       loadQuickLogState();
       updateStreak();
-      renderWeekSummary();
-      renderHistory();
     }
-    updateSyncStatus("synced");
+    updateSyncIndicator("synced");
   } catch (e) {
-    updateSyncStatus("offline");
+    updateSyncIndicator("offline");
   }
-  syncReady = true; // Now allow user-triggered syncs
+  syncReady = true;
 }
 
-function updateSyncStatus(status) {
+function updateSyncIndicator(status) {
   const el = document.getElementById("sync-indicator");
   if (!el) return;
-  const map = { synced: "\u2601\uFE0F Synced", error: "\u26A0\uFE0F Sync error", offline: "\uD83D\uDCF4 Offline", empty: "" };
-  el.textContent = map[status] || "";
-  el.style.color = status === "synced" ? "#4ade80" : "#fbbf24";
+  if (status === "synced") { el.textContent = "\u2601\uFE0F"; el.style.color = "#4ade80"; }
+  else if (status === "error") { el.textContent = "\u26A0\uFE0F"; el.style.color = "#fbbf24"; }
+  else if (status === "offline") { el.textContent = "\uD83D\uDCF4"; el.style.color = "#f87171"; }
 }
 
-// Kick off server load after page init
+// === INIT ===
+buildDayPills();
+renderWorkout(dayNames[new Date().getDay()]);
+loadQuickLogState();
+updateStreak();
+initRehabTracking();
 loadFromServer();
-
-// Patch save() to trigger sync
-
-
 </script>
 </body>
 </html>
